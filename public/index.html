@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RECEPIES // Rezept-Datenbank</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="glow glow-1" aria-hidden="true"></div>
+  <div class="glow glow-2" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="logo">
+      <span class="logo-mark">◈</span>
+      <span class="logo-text">RECEPIES<em>.sys</em></span>
+    </div>
+    <nav>
+      <button class="nav-btn active" data-view="gallery">Galerie</button>
+      <button class="nav-btn" data-view="suggestions">Vorschläge</button>
+      <button class="nav-btn primary" id="btn-new">+ Neues Rezept</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- GALERIE -->
+    <section id="view-gallery" class="view active">
+      <div class="filter-row">
+        <input type="search" id="search" placeholder="Suche: Titel, Zutat, Tag …" autocomplete="off" />
+        <select id="category-filter">
+          <option value="all">Alle Kategorien</option>
+          <option value="Frühstück">Frühstück</option>
+          <option value="Mittagessen">Mittagessen</option>
+          <option value="Abendessen">Abendessen</option>
+          <option value="Snack">Snack</option>
+          <option value="Dessert">Dessert</option>
+          <option value="Getränk">Getränk</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+      <div id="recipe-grid" class="recipe-grid"></div>
+      <p id="empty-state" class="empty-state hidden">Keine Rezepte gefunden. Erstelle dein erstes Rezept.</p>
+    </section>
+
+    <!-- VORSCHLÄGE -->
+    <section id="view-suggestions" class="view">
+      <h2 class="section-title">// Vorschlagsliste</h2>
+      <p class="section-sub">Gib an, welche Zutaten du zu Hause hast – das System schlägt passende Rezepte vor.</p>
+      <div class="filter-row">
+        <input type="text" id="pantry-input" placeholder="Verfügbare Zutaten, mit Komma getrennt (z. B. Ei, Reis, Tomate)" />
+        <input type="number" id="max-calories" placeholder="Max. kcal" min="0" />
+        <button class="nav-btn primary" id="btn-suggest">Vorschläge berechnen</button>
+      </div>
+      <div id="suggestion-list" class="suggestion-list"></div>
+    </section>
+  </main>
+
+  <!-- MODAL: Rezept-Formular -->
+  <dialog id="recipe-modal" class="modal">
+    <form id="recipe-form" method="dialog">
+      <div class="modal-head">
+        <h2 id="modal-title">Neues Rezept</h2>
+        <button type="button" class="icon-btn" id="modal-close">✕</button>
+      </div>
+
+      <input type="hidden" id="f-id" />
+
+      <label class="field">
+        <span>Titel *</span>
+        <input type="text" id="f-title" required placeholder="z. B. Neon-Pasta" />
+      </label>
+
+      <label class="field">
+        <span>Beschreibung</span>
+        <textarea id="f-description" rows="2" placeholder="Kurze Beschreibung"></textarea>
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Kategorie</span>
+          <select id="f-category">
+            <option>Frühstück</option>
+            <option>Mittagessen</option>
+            <option>Abendessen</option>
+            <option>Snack</option>
+            <option>Dessert</option>
+            <option>Getränk</option>
+            <option>Sonstiges</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Portionen</span>
+          <input type="number" id="f-servings" min="1" value="2" />
+        </label>
+        <label class="field">
+          <span>Zubereitungszeit (min)</span>
+          <input type="number" id="f-preptime" min="0" value="15" />
+        </label>
+      </div>
+
+      <fieldset class="fieldset">
+        <legend>Zutaten *</legend>
+        <div id="ingredient-list"></div>
+        <button type="button" class="ghost-btn" id="btn-add-ingredient">+ Zutat hinzufügen</button>
+      </fieldset>
+
+      <fieldset class="fieldset">
+        <legend>Nährwerte (pro Portion)</legend>
+        <div class="field-row nutrition">
+          <label class="field"><span>kcal</span><input type="number" id="f-calories" min="0" step="1" placeholder="0" /></label>
+          <label class="field"><span>Protein (g)</span><input type="number" id="f-protein" min="0" step="0.1" placeholder="0" /></label>
+          <label class="field"><span>KH (g)</span><input type="number" id="f-carbs" min="0" step="0.1" placeholder="0" /></label>
+          <label class="field"><span>Fett (g)</span><input type="number" id="f-fat" min="0" step="0.1" placeholder="0" /></label>
+          <label class="field"><span>Ballastst. (g)</span><input type="number" id="f-fiber" min="0" step="0.1" placeholder="0" /></label>
+        </div>
+      </fieldset>
+
+      <label class="field">
+        <span>Tags (Komma-getrennt)</span>
+        <input type="text" id="f-tags" placeholder="vegan, schnell, scharf" />
+      </label>
+
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn danger" id="btn-delete" hidden>Rezept löschen</button>
+        <span class="spacer"></span>
+        <button type="button" class="ghost-btn" id="btn-cancel">Abbrechen</button>
+        <button type="submit" class="nav-btn primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="tpl-card">
+    <article class="card">
+      <div class="card-head">
+        <span class="card-cat"></span>
+        <span class="card-time"></span>
+      </div>
+      <h3 class="card-title"></h3>
+      <p class="card-desc"></p>
+      <div class="card-tags"></div>
+      <div class="card-nutrition">
+        <div class="nutri"><b class="n-cal"></b><span>kcal</span></div>
+        <div class="nutri"><b class="n-protein"></b><span>Protein</span></div>
+        <div class="nutri"><b class="n-carbs"></b><span>KH</span></div>
+        <div class="nutri"><b class="n-fat"></b><span>Fett</span></div>
+      </div>
+      <div class="card-foot">
+        <span class="card-ingredients-count"></span>
+        <button class="card-btn">Öffnen</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
