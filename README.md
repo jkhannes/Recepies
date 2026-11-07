@@ -14,17 +14,18 @@ Design: abstrakt-futuristisch, schwarzer Hintergrund mit Neon-Akzenten.
 ## Starten (localhost)
 
 ```bash
+npm install
 npm start
 ```
 
 Die App läuft dann unter **http://localhost:3000**.
 
-Keine externen Abhängigkeiten – nur Node.js (>= 18) erforderlich.
-
 ## Daten
 
-Die Rezepte werden in `data/recipes.json` gespeichert.
-Für Backups reicht es, diese Datei zu sichern.
+Die Rezepte werden in einer **lokalen SQLite-Datenbank** unter `db/recipes.db` gespeichert.
+Der Ordner `db/` ist in `.gitignore` und landet nie im Repository.
+Für Backups reicht es, die Datei `db/recipes.db` zu sichern.
+Bestehende JSON-Daten aus `data/recipes.json` werden beim ersten Start automatisch migriert.
 
 ## Später auf eigenen Server
 

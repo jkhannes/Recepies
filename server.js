@@ -1,26 +1,112 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'recipes.json');
+const DB_DIR = path.join(__dirname, 'db');
+const DB_FILE = path.join(DB_DIR, 'recipes.db');
+const LEGACY_JSON = path.join(__dirname, 'data', 'recipes.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify({ recipes: [] }, null, 2));
+if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
-function readData() {
+const db = new Database(DB_FILE);
+db.pragma('journal_mode = WAL');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recipes (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'Sonstiges',
+    servings INTEGER NOT NULL DEFAULT 2,
+    prepTime INTEGER NOT NULL DEFAULT 0,
+    ingredients TEXT NOT NULL DEFAULT '[]',
+    nutrition TEXT NOT NULL DEFAULT '{}',
+    tags TEXT NOT NULL DEFAULT '[]',
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+`);
+
+function rowToRecipe(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    servings: row.servings,
+    prepTime: row.prepTime,
+    ingredients: JSON.parse(row.ingredients),
+    nutrition: JSON.parse(row.nutrition),
+    tags: JSON.parse(row.tags),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function recipeToRow(r) {
+  return {
+    ...r,
+    ingredients: JSON.stringify(r.ingredients || []),
+    nutrition: JSON.stringify(r.nutrition || {}),
+    tags: JSON.stringify(r.tags || []),
+  };
+}
+
+const stmts = {
+  all: db.prepare('SELECT * FROM recipes'),
+  get: db.prepare('SELECT * FROM recipes WHERE id = ?'),
+  insert: db.prepare(`
+    INSERT INTO recipes (id, title, description, category, servings, prepTime, ingredients, nutrition, tags, createdAt, updatedAt)
+    VALUES (@id, @title, @description, @category, @servings, @prepTime, @ingredients, @nutrition, @tags, @createdAt, @updatedAt)
+  `),
+  update: db.prepare(`
+    UPDATE recipes SET title = @title, description = @description, category = @category,
+      servings = @servings, prepTime = @prepTime, ingredients = @ingredients,
+      nutrition = @nutrition, tags = @tags, updatedAt = @updatedAt
+    WHERE id = @id
+  `),
+  delete: db.prepare('DELETE FROM recipes WHERE id = ?'),
+};
+
+function listRecipes() {
+  return stmts.all.all().map(rowToRecipe);
+}
+
+function getRecipe(id) {
+  const row = stmts.get.get(id);
+  return row ? rowToRecipe(row) : null;
+}
+
+function insertRecipe(recipe) {
+  stmts.insert.run(recipeToRow(recipe));
+}
+
+function updateRecipe(recipe) {
+  stmts.update.run(recipeToRow(recipe));
+}
+
+function deleteRecipe(id) {
+  stmts.delete.run(id);
+}
+
+// Einmalige Migration alter JSON-Daten
+(function migrateLegacyJson() {
+  if (!fs.existsSync(LEGACY_JSON)) return;
+  const count = db.prepare('SELECT COUNT(*) AS c FROM recipes').get().c;
+  if (count > 0) return;
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch {
-    return { recipes: [] };
+    const legacy = JSON.parse(fs.readFileSync(LEGACY_JSON, 'utf8'));
+    const insertMany = db.transaction((recipes) => {
+      for (const r of recipes) insertRecipe(normalizeRecipe(r));
+    });
+    insertMany(legacy.recipes || []);
+    console.log(`${(legacy.recipes || []).length} Rezepte aus data/recipes.json migriert.`);
+  } catch (err) {
+    console.error('Migration fehlgeschlagen:', err.message);
   }
-}
-
-function writeData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+})();
 
 function send(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -145,10 +231,9 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (req.method === 'GET' && (pathname === '/api/recipes' || pathname === '/api/recipes/')) {
-      const data = readData();
       const q = (url.searchParams.get('q') || '').toLowerCase().trim();
       const category = url.searchParams.get('category');
-      let list = data.recipes;
+      let list = listRecipes();
       if (q) {
         list = list.filter(
           (r) =>
@@ -169,39 +254,33 @@ const server = http.createServer(async (req, res) => {
       const recipe = normalizeRecipe(body);
       const error = validate(recipe);
       if (error) return send(res, 400, { error });
-      const data = readData();
-      data.recipes.push(recipe);
-      writeData(data);
+      insertRecipe(recipe);
       return send(res, 201, { recipe });
     }
 
     const id = parts[2];
     if (id) {
-      const data = readData();
-      const idx = data.recipes.findIndex((r) => r.id === id);
-      if (idx === -1) return send(res, 404, { error: 'Rezept nicht gefunden.' });
+      const existing = getRecipe(id);
+      if (!existing) return send(res, 404, { error: 'Rezept nicht gefunden.' });
 
-      if (req.method === 'GET') return send(res, 200, { recipe: data.recipes[idx] });
+      if (req.method === 'GET') return send(res, 200, { recipe: existing });
 
       if (req.method === 'PUT') {
         const body = await readBody(req);
-        const recipe = normalizeRecipe(body, data.recipes[idx]);
+        const recipe = normalizeRecipe(body, existing);
         const error = validate(recipe);
         if (error) return send(res, 400, { error });
-        data.recipes[idx] = recipe;
-        writeData(data);
+        updateRecipe(recipe);
         return send(res, 200, { recipe });
       }
 
       if (req.method === 'DELETE') {
-        data.recipes.splice(idx, 1);
-        writeData(data);
+        deleteRecipe(id);
         return send(res, 200, { ok: true });
       }
     }
 
     if (req.method === 'GET' && (pathname === '/api/suggestions' || pathname === '/api/suggestions/')) {
-      const data = readData();
       const pantry = (url.searchParams.get('pantry') || '')
         .split(',')
         .map((s) => s.trim())
@@ -209,7 +288,7 @@ const server = http.createServer(async (req, res) => {
       const maxCalories = Number(url.searchParams.get('maxCalories')) || 0;
       const category = url.searchParams.get('category');
 
-      let list = data.recipes.slice();
+      let list = listRecipes();
       if (maxCalories > 0) list = list.filter((r) => (r.nutrition.calories || 0) <= maxCalories);
       if (category && category !== 'all') list = list.filter((r) => r.category === category);
 
